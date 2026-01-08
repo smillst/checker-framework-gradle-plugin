@@ -24,7 +24,6 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
   companion object {
     const val PLUGIN_ID = "org.checkerframework"
     const val CONFIGURATION_NAME = "checkerFramework"
-    const val DEFAULT_CF_VERSION = "3.52.1"
   }
 
   override fun apply(project: Project) {
@@ -183,7 +182,8 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
   }
 
   private fun findCfVersion(cfOptions: CheckerFrameworkExtension): String =
-    cfOptions.version.getOrElse(DEFAULT_CF_VERSION)
+    // TODO: Err if not set
+    cfOptions.version.get()
 
   private fun isTestName(string: String): Boolean {
     return string.contains("test") || string.contains("Test")

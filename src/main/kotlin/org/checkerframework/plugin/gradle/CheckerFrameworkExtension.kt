@@ -39,6 +39,7 @@ abstract class CheckerFrameworkExtension {
    */
   abstract val incrementalize: Property<Boolean>
 
+  // TODO: Can this field be eliminated in favor of the `version` field?
   /** Disables the Checker Framework. */
   abstract val skipCheckerFramework: Property<Boolean>
 }
