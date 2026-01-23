@@ -8,6 +8,8 @@ import org.gradle.api.Task
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.plugins.JavaBasePlugin
+import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.compile.JavaCompile
@@ -67,7 +69,7 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
     val cfManifestDir = project.layout.buildDirectory.dir("checkerframework")
 
     project.tasks.register("writeCheckerManifest", WriteCheckerManifestTask::class.java) {
-      group = "CheckerFramework"
+      group = "Checker Framework tasks"
       checkers.set(cfExtension.checkers)
       incrementalize.set(cfExtension.incrementalize)
       cfBuildDir.set(cfManifestDir)
@@ -80,7 +82,9 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
           .create("checkerFrameworkCompile", CheckerFrameworkCompileExtension::class.java)
 
       if (
-        getCFVersion(cfExtension, project) == "disable" ||
+        cfExtension.skipCheckerFramework.getOrElse(false) ||
+          (project.hasProperty("skipCheckerFramework") ||
+            !(project.properties["skipCheckerFramework"]?.toString() ?: "false").equals("false")) ||
           !cfCompileOptions.enabled.getOrElse(true) ||
           (cfExtension.excludeTests.getOrElse(false) && isTestName(name))
       ) {
@@ -124,31 +128,52 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
       } else {
         throw IllegalStateException("Must specify checkers for the Checker Framework.")
       }
+    }
+    // Handle Lombok
+    project.pluginManager.withPlugin("io.freefair.lombok") {
+      val javaPluginExtension: JavaPluginExtension =
+        project.getExtensions().getByType(JavaPluginExtension::class.java)
+      javaPluginExtension.sourceSets.forEach { s -> addCheckerTasks(s, project) }
+    }
+  }
 
-      val compileTaskName = name
+  /**
+   * Adds a checkerCompileJava task, for the given source set, that copy the compileJava test, but
+   * changes the source to the result of the delombok tast.
+   */
+  private fun addCheckerTasks(sourceSet: SourceSet, project: Project) {
 
-      // Handle Lombok
-      project.pluginManager.withPlugin("io.freefair.lombok") {
-        // Find the delombok task that delomboks the code for this JavaCompile task.
-        val delombokTaskProvider: TaskProvider<Task> =
-          if (compileTaskName == "compileJava") {
-            project.tasks.named("delombok")
-          } else {
-            val sourceSetName =
-              compileTaskName.substring("compile".length, compileTaskName.length - "Java".length)
-            project.tasks.named("delombok$sourceSetName")
-          }
+    val checkerTaskProvider: TaskProvider<JavaCompile> =
+      project.tasks.register(
+        sourceSet.getTaskName("checker", "CompileJava"),
+        JavaCompile::class.java,
+      )
 
-        if (delombokTaskProvider.isPresent) {
-          val delombokTask = delombokTaskProvider.get()
-          dependsOn.add(delombokTask)
-          // The lombok plugin's default formatting is pretty-printing, without the @Generated
-          // annotations that we need to recognize lombok'd code.
-          delombokTask.extensions.add("generated", "generate")
-          // Set the sources to the delomboked code.
-          source = delombokTask.outputs.files.asFileTree
-        }
-      }
+    sourceSet.getExtensions().add("checkerTask", checkerTaskProvider)
+    val compileTaskProvider: TaskProvider<JavaCompile> =
+      project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile::class.java, {})
+    val delombokTaskProvider: TaskProvider<Task> =
+      project.getTasks().named(sourceSet.getTaskName("delombok", ""), Task::class.java, {})
+
+    project.afterEvaluate {
+      val delombokTask = delombokTaskProvider.get()
+      val checkerTask = checkerTaskProvider.get()
+      val compileTask = compileTaskProvider.get()
+      checkerTask.group = "Checker Framework tasks"
+      checkerTask.description =
+        "Runs the Checker Framework on the result of delomboking the source code"
+      checkerTask.classpath = compileTask.classpath
+      delombokTask.extensions.add("generated", "generate")
+      // Set the sources to the delomboked code.
+      checkerTask.source(delombokTask.outputs.files.asFileTree)
+      // Copy properties from the original task
+      checkerTask.classpath = compileTask.classpath
+      checkerTask.destinationDirectory.set(
+        project.layout.buildDirectory.dir("checkerFrameworkClasses")
+      )
+      checkerTask.options.compilerArgs = compileTask.options.compilerArgs
+      checkerTask.options.annotationProcessorPath = compileTask.options.annotationProcessorPath
+      project.tasks.named("build").get().dependsOn(checkerTask)
     }
   }
 
@@ -182,7 +207,7 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
           )
         }
         add(project.dependencies.create(project.files(jarFile)))
-      } else if (version == "dependencies" || version == "disable") {
+      } else if (version == "dependencies") {
         // Don't add dependencies.
       } else {
         add(project.dependencies.create("org.checkerframework:$jarName:$version"))
@@ -192,12 +217,12 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
 
   /**
    * Get the version configuration value, which is a Checker Framework version or one of "local",
-   * "disable", "dependencies".
+   * "dependencies".
    *
    * @param cfExtension CF configuration
    * @param project current project
    * @return the version configuration value, which is a Checker Framework version or one of
-   *   "local", "disable", "dependencies".
+   *   "local", "dependencies".
    */
   private fun getCFVersion(cfExtension: CheckerFrameworkExtension, project: Project): String {
     if (project.hasProperty("cfVersion")) {
