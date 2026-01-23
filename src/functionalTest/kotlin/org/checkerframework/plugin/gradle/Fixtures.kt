@@ -101,6 +101,74 @@ fun File.writeResourceLeakTest() {
   }
 }
 
+fun File.writeLombokExample() {
+  File(this.resolve("src/main/java/lib").apply { mkdirs() }, "Foo.java").apply {
+    createNewFile()
+    writeText(
+      """
+      package lib;
+
+      import lombok.Builder;
+      import org.checkerframework.checker.nullness.qual.Nullable;
+
+      @Builder
+      public class Foo {
+        private @Nullable Integer x;
+        private Integer y;
+
+        void demo() {
+          x = null; // ok
+          y = null; // error
+        }
+      }
+      """
+        .trimIndent()
+    )
+  }
+
+  File(this.resolve("src/main/java/use").apply { mkdirs() }, "User.java").apply {
+    createNewFile()
+    writeText(
+      """
+      package use;
+
+      import lib.Foo;
+
+      public class User {
+        Foo demo() {
+          return Foo.builder()
+              .x(null) // ok
+              .y(null) // error
+              .build();
+        }
+      }
+      """
+        .trimIndent()
+    )
+  }
+}
+
+fun File.writeErrorProneExample() {
+  File(this.resolve("src/main/java/com/example").apply { mkdirs() }, "Demo.java").apply {
+    createNewFile()
+    writeText(
+      """
+      package com.example;
+
+      import java.util.Set;
+
+      public class Demo {
+        void demo(Set<Short> s, short i) {
+          s.remove(i - 1); // Error Prone error
+          s.add(null); // Nullness Checker error
+        }
+      }
+      """
+        .trimIndent()
+    )
+  }
+}
+
 fun File.buildWithArgs(vararg tasks: String): BuildResult = prepareBuild(*tasks).build()
 
 fun File.buildWithArgsAndFail(vararg tasks: String): BuildResult =
