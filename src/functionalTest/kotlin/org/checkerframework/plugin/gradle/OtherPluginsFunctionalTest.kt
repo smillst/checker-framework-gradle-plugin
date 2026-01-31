@@ -1,6 +1,7 @@
 package org.checkerframework.plugin.gradle
 
 import com.google.common.truth.Truth.assertThat
+import org.gradle.testkit.runner.TaskOutcome
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
@@ -90,6 +91,40 @@ class OtherPluginsFunctionalTest : AbstractPluginFunctionalTest() {
       )
     assertThat(result.output)
       .contains("Foo.java:12: error: [assignment] incompatible types in assignment.")
+  }
+
+  @Test
+  fun `test disabling CF with lombok `() {
+    buildFile.appendText(
+      """
+       plugins {
+          `java-library`
+          id("org.checkerframework")
+          id("io.freefair.lombok").version("9.2.0")
+      }
+      
+      configure<CheckerFrameworkExtension> {
+        version = "$TEST_CF_VERSION"
+        checkers = listOf("org.checkerframework.checker.nullness.NullnessChecker")
+        extraJavacArgs = listOf("-Aversion")
+      }
+      """
+        .trimIndent()
+    )
+    // given
+    testProjectDir.writeLombokExample()
+
+    // when
+    val result = testProjectDir.buildWithArgs("build", "-PskipCheckerFramework")
+
+    // then
+    assertThat(result.task(":build")?.outcome).isEqualTo(TaskOutcome.SUCCESS)
+    assertThat(result.output)
+      .doesNotContain(
+        "User.java:9: error: [argument] incompatible argument for parameter y of FooBuilder.y."
+      )
+    assertThat(result.output)
+      .doesNotContain("Foo.java:12: error: [assignment] incompatible types in assignment.")
   }
 
   @Test
