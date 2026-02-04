@@ -259,7 +259,6 @@ class CheckerFrameworkPlugin @Inject constructor() : Plugin<Project> {
 
   /** Return true if the Name is a test name. */
   private fun isTestName(taskName: String): Boolean {
-    println("#$taskName#")
     return taskName.matches(Regex(".*(T|(^|[A-Z_])t)est.*"))
   }
 
